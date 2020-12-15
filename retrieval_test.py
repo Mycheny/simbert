@@ -1,4 +1,4 @@
-#！-*- coding: utf-8 -*-
+# ！-*- coding: utf-8 -*-
 # SimBERT 相似度任务测试
 # 基于LCQMC语料
 
@@ -8,15 +8,16 @@ from bert4keras.backend import keras, K
 from bert4keras.models import build_transformer_model
 from bert4keras.tokenizers import Tokenizer
 from bert4keras.snippets import sequence_padding
-from bert4keras.snippets import uniout, open
+from bert4keras.snippets import open
 from keras.models import Model
 
 maxlen = 32
 
 # bert配置
-config_path = '/root/kg/bert/chinese_simbert_L-12_H-768_A-12/bert_config.json'
-checkpoint_path = '/root/kg/bert/chinese_simbert_L-12_H-768_A-12/bert_model.ckpt'
-dict_path = '/root/kg/bert/chinese_simbert_L-12_H-768_A-12/vocab.txt'
+root = r"E:\BaiduNetdiskDownload\chinese_simbert_L-12_H-768_A-12"
+config_path = f'{root}/bert_config.json'
+checkpoint_path = f'{root}/bert_model.ckpt'
+dict_path = f'{root}/vocab.txt'
 
 # 建立分词器
 tokenizer = Tokenizer(dict_path, do_lower_case=True)  # 建立分词器
@@ -38,14 +39,22 @@ def load_data(filename):
     with open(filename, encoding='utf-8') as f:
         for l in f:
             text1, text2, label = l.strip().split('\t')
+            if label == "label":
+                continue
             D.append((text1, text2, int(label)))
+            if len(D) > 100:
+                break
     return D
 
 
 # 加载数据集
-train_data = load_data('datasets/lcqmc/lcqmc.train.data')
-valid_data = load_data('datasets/lcqmc/lcqmc.valid.data')
-test_data = load_data('datasets/lcqmc/lcqmc.test.data')
+# train_data = load_data('datasets/lcqmc/lcqmc.train.data')
+# valid_data = load_data('datasets/lcqmc/lcqmc.valid.data')
+# test_data = load_data('datasets/lcqmc/lcqmc.test.data')
+
+# train_data = load_data(r'D:\资料\数据\相似句子\LCQMC\processed\train.tsv')
+valid_data = load_data(r'D:\资料\数据\相似句子\LCQMC\processed\dev.tsv')
+# test_data = load_data(r'D:\资料\数据\相似句子\LCQMC\processed\test.tsv')
 
 # 测试相似度效果
 data = valid_data
@@ -68,8 +77,8 @@ b_vecs = encoder.predict([b_token_ids, np.zeros_like(b_token_ids)],
                          verbose=True)
 labels = np.array(labels)
 
-a_vecs = a_vecs / (a_vecs**2).sum(axis=1, keepdims=True)**0.5
-b_vecs = b_vecs / (b_vecs**2).sum(axis=1, keepdims=True)**0.5
+a_vecs = a_vecs / (a_vecs ** 2).sum(axis=1, keepdims=True) ** 0.5
+b_vecs = b_vecs / (b_vecs ** 2).sum(axis=1, keepdims=True) ** 0.5
 sims = (a_vecs * b_vecs).sum(axis=1)
 
 # 以0.9为阈值，acc为79.82%
@@ -84,11 +93,12 @@ def most_similar(text, topn=10):
     """
     token_ids, segment_ids = tokenizer.encode(text, max_length=maxlen)
     vec = encoder.predict([[token_ids], [segment_ids]])[0]
-    vec /= (vec**2).sum()**0.5
+    vec /= (vec ** 2).sum() ** 0.5
     sims = np.dot(vecs, vec)
     return [(texts[i], sims[i]) for i in sims.argsort()[::-1][:topn]]
 
-
+most_similar(u'怎么开初婚未育证明', 20)
+print()
 """
 >>> most_similar(u'怎么开初婚未育证明', 20)
 [

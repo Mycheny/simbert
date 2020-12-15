@@ -4,7 +4,10 @@
 
 from __future__ import print_function
 import json
+import os
+import sys
 import numpy as np
+import tensorflow as tf
 from collections import Counter
 from bert4keras.backend import keras, K
 from bert4keras.layers import Loss
@@ -15,19 +18,26 @@ from bert4keras.snippets import DataGenerator
 from bert4keras.snippets import sequence_padding
 from bert4keras.snippets import text_segmentate
 from bert4keras.snippets import AutoRegressiveDecoder
-from bert4keras.snippets import uniout
 
+# from bert4keras.snippets import uniout
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 # 基本信息
 maxlen = 32
-batch_size = 128
-steps_per_epoch = 1000
-epochs = 10000
+batch_size = 8
+steps_per_epoch = 10
+epochs = 20
 corpus_path = 'data_sample.json'
 
-# bert配置
-config_path = '/root/kg/bert/chinese_L-12_H-768_A-12/bert_config.json'
-checkpoint_path = '/root/kg/bert/chinese_L-12_H-768_A-12/bert_model.ckpt'
-dict_path = '/root/kg/bert/chinese_L-12_H-768_A-12/vocab.txt'
+if sys.platform == "linux":
+    # bert配置
+    root = r"resources/bert"
+else:
+    # bert配置
+    root = r"resources/bert"
+    # root = r"E:\BaiduNetdiskDownload\chinese_simbert_L-12_H-768_A-12"
+config_path = os.path.join(root, 'bert_config.json')
+checkpoint_path = os.path.join(root, 'bert_model.ckpt')
+dict_path = os.path.join(root, 'vocab.txt')
 
 # 加载并精简词表，建立分词器
 token_dict, keep_tokens = load_vocab(
@@ -38,11 +48,23 @@ token_dict, keep_tokens = load_vocab(
 tokenizer = Tokenizer(token_dict, do_lower_case=True)
 
 
+def get_tensor_values(tensor, bert):
+    token_id1, segment_id1 = tokenizer.encode("有现金.住房公积金里有十万，可以买房吗", second_text="用住房公积金贷款买房，同时可以取出现金吗", max_length=maxlen)
+    token_id2, segment_id2 = tokenizer.encode("用住房公积金贷款买房，同时可以取出现金吗", second_text="有现金.住房公积金里有十万，可以买房吗", max_length=maxlen)
+    token_id3, segment_id3 = tokenizer.encode("晚上好无聊 辛店晚上有好玩的地方吗", second_text="晚上哪里有好玩的，甚是无聊寂寞", max_length=maxlen)
+    token_id4, segment_id4 = tokenizer.encode("晚上哪里有好玩的，甚是无聊寂寞", second_text="晚上好无聊 辛店晚上有好玩的地方吗", max_length=maxlen)
+    token_ids = [token_id1, token_id2, token_id3, token_id4]
+    segment_ids = [segment_id1, segment_id2, segment_id3, segment_id4]
+    with tf.Session() as sess:
+        sess.run(tf.initialize_all_variables())
+        out = sess.run(tensor, feed_dict={bert.model.inputs[0]: token_ids, bert.model.inputs[1]: segment_ids})
+        return out
+
 def read_corpus():
     """读取语料，每行一个json
     """
     while True:
-        with open(corpus_path) as f:
+        with open(corpus_path, encoding="utf-8") as f:
             for l in f:
                 yield json.loads(l)
 
@@ -57,6 +79,7 @@ def truncate(text):
 class data_generator(DataGenerator):
     """数据生成器
     """
+
     def __init__(self, *args, **kwargs):
         super(data_generator, self).__init__(*args, **kwargs)
         self.some_samples = []
@@ -92,6 +115,7 @@ class data_generator(DataGenerator):
 class TotalLoss(Loss):
     """loss分两部分，一是seq2seq的交叉熵，二是相似度的交叉熵。
     """
+
     def compute_loss(self, inputs, mask=None):
         loss1 = self.compute_loss_of_seq2seq(inputs, mask)
         loss2 = self.compute_loss_of_similarity(inputs, mask)
@@ -121,10 +145,10 @@ class TotalLoss(Loss):
         return loss
 
     def get_labels_of_similarity(self, y_pred):
-        idxs = K.arange(0, K.shape(y_pred)[0])
-        idxs_1 = idxs[None, :]
-        idxs_2 = (idxs + 1 - idxs % 2 * 2)[:, None]
-        labels = K.equal(idxs_1, idxs_2)
+        idxs = K.arange(0, K.shape(y_pred)[0])  # value=[0, ..., batch-1]
+        idxs_1 = idxs[None, :]  # shape=(1, batch)
+        idxs_2 = (idxs + 1 - idxs % 2 * 2)[:, None]  # shape=(batch, 1)
+        labels = K.equal(idxs_1, idxs_2)  # eg: batch=2 [[False, True], [True, False]]
         labels = K.cast(labels, K.floatx())
         return labels
 
@@ -142,6 +166,8 @@ bert = build_transformer_model(
 encoder = keras.models.Model(bert.model.inputs, bert.model.outputs[0])
 seq2seq = keras.models.Model(bert.model.inputs, bert.model.outputs[1])
 
+out = get_tensor_values(bert.model.outputs, bert)
+
 outputs = TotalLoss([2, 3])(bert.model.inputs + bert.model.outputs)
 model = keras.models.Model(bert.model.inputs, outputs)
 
@@ -154,6 +180,7 @@ model.summary()
 class SynonymsGenerator(AutoRegressiveDecoder):
     """seq2seq解码器
     """
+
     @AutoRegressiveDecoder.set_rtype('probas')
     def predict(self, inputs, output_ids, step):
         token_ids, segment_ids = inputs
@@ -161,7 +188,7 @@ class SynonymsGenerator(AutoRegressiveDecoder):
         segment_ids = np.concatenate([segment_ids, np.ones_like(output_ids)], 1)
         return seq2seq.predict([token_ids, segment_ids])[:, -1]
 
-    def generate(self, text, n=1, topk=5):
+    def generate(self, text, n=10, topk=5):
         token_ids, segment_ids = tokenizer.encode(text, max_length=maxlen)
         output_ids = self.random_sample([token_ids, segment_ids], n,
                                         topk)  # 基于随机采样
@@ -202,7 +229,7 @@ def gen_synonyms(text, n=100, k=20):
     X = sequence_padding(X)
     S = sequence_padding(S)
     Z = encoder.predict([X, S])
-    Z /= (Z**2).sum(axis=1, keepdims=True)**0.5
+    Z /= (Z ** 2).sum(axis=1, keepdims=True) ** 0.5
     argsort = np.dot(Z[1:], -Z[0]).argsort()
     return [r[i + 1] for i in argsort[:k]]
 
@@ -225,6 +252,7 @@ def just_show():
 class Evaluate(keras.callbacks.Callback):
     """评估模型
     """
+
     def __init__(self):
         self.lowest = 1e10
 
@@ -239,6 +267,8 @@ class Evaluate(keras.callbacks.Callback):
 
 
 if __name__ == '__main__':
+    # model.load_weights('./best_model.weights')
+    model.load_weights('./latest_model.weights')
 
     train_generator = data_generator(read_corpus(), batch_size)
     evaluator = Evaluate()
@@ -252,4 +282,4 @@ if __name__ == '__main__':
 
 else:
 
-    model.load_weights('./latest_model.weights')
+    model.load_weights('./best_model.weights')
