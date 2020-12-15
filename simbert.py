@@ -5,6 +5,7 @@
 from __future__ import print_function
 import json
 import os
+import random
 import sys
 import numpy as np
 import tensorflow as tf
@@ -18,16 +19,17 @@ from bert4keras.snippets import DataGenerator
 from bert4keras.snippets import sequence_padding
 from bert4keras.snippets import text_segmentate
 from bert4keras.snippets import AutoRegressiveDecoder
-
+if __name__ == '__main__': os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 # from bert4keras.snippets import uniout
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
 # 基本信息
 maxlen = 32
-batch_size = 8
-steps_per_epoch = 10
-epochs = 20
-corpus_path = 'data_sample.json'
-
+batch_size = 16
+steps_per_epoch = 625
+epochs = 1000
+corpus_path = os.path.join('resources', 'data', 'dataset.json')
+best_model_path = os.path.join('resources', 'model', 'best_model.weights')
+latest_model_path = os.path.join('resources', 'model', 'latest_model.weights')
 if sys.platform == "linux":
     # bert配置
     root = r"resources/bert"
@@ -63,10 +65,12 @@ def get_tensor_values(tensor, bert):
 def read_corpus():
     """读取语料，每行一个json
     """
+    with open(corpus_path, encoding="utf-8") as f:
+        lines = f.readlines()
+    random.shuffle(lines)
     while True:
-        with open(corpus_path, encoding="utf-8") as f:
-            for l in f:
-                yield json.loads(l)
+        for line in lines:
+            yield json.loads(line)
 
 
 def truncate(text):
@@ -257,18 +261,18 @@ class Evaluate(keras.callbacks.Callback):
         self.lowest = 1e10
 
     def on_epoch_end(self, epoch, logs=None):
-        model.save_weights('./latest_model.weights')
+        model.save_weights(latest_model_path)
         # 保存最优
         if logs['loss'] <= self.lowest:
             self.lowest = logs['loss']
-            model.save_weights('./best_model.weights')
+            model.save_weights(best_model_path)
         # 演示效果
         just_show()
 
 
 if __name__ == '__main__':
-    # model.load_weights('./best_model.weights')
-    model.load_weights('./latest_model.weights')
+    if os.path.exists(best_model_path):
+        model.load_weights(best_model_path)
 
     train_generator = data_generator(read_corpus(), batch_size)
     evaluator = Evaluate()
@@ -281,5 +285,4 @@ if __name__ == '__main__':
     )
 
 else:
-
-    model.load_weights('./best_model.weights')
+    model.load_weights(best_model_path)
