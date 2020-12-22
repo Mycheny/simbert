@@ -192,10 +192,10 @@ class SynonymsGenerator(AutoRegressiveDecoder):
         segment_ids = np.concatenate([segment_ids, np.ones_like(output_ids)], 1)
         return seq2seq.predict([token_ids, segment_ids])[:, -1]
 
-    def generate(self, text, n=10, topk=5):
+    def generate(self, text, n=10, topk=None, topp=None):
         token_ids, segment_ids = tokenizer.encode(text, max_length=maxlen)
-        output_ids = self.random_sample([token_ids, segment_ids], n,
-                                        topk)  # 基于随机采样
+        # output_ids = self.random_sample([token_ids, segment_ids], n, topk)  # 基于随机采样
+        output_ids = self.random_sample([token_ids, segment_ids], n, topk=topk, topp=topp)  # 基于随机采样
         return [tokenizer.decode(ids) for ids in output_ids]
 
 
@@ -204,7 +204,7 @@ synonyms_generator = SynonymsGenerator(
 )
 
 
-def gen_synonyms(text, n=100, k=20):
+def gen_synonyms(text, n=100, k=20, topk=None, topp=None):
     """"含义： 产生sent的n个相似句，然后返回最相似的k个。
     做法：用seq2seq生成，并用encoder算相似度并排序。
     效果：
@@ -222,7 +222,7 @@ def gen_synonyms(text, n=100, k=20):
             u'微信和支付宝选哪个好',
         ]
     """
-    r = synonyms_generator.generate(text, n)
+    r = synonyms_generator.generate(text, n, topk=topk, topp=topp)
     r = [i for i in set(r) if i != text]
     r = [text] + r
     X, S = [], []
